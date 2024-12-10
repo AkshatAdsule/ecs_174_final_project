@@ -3,8 +3,9 @@
 #================
 import cv2
 import numpy as np
-from datetime import datetime
-import time
+from collections import defaultdict
+
+preprocess = True
 
 class TrafficDetector:
     def __init__(self, min_area=250, detection_lines=None):
@@ -23,8 +24,9 @@ class TrafficDetector:
         self.min_area = min_area
         self.detection_lines = detection_lines or [(0, 300)]  # Default detection zone
         self.vehicle_count = 0
-        self.tracked_vehicles = {}
+        self.tracked_vehicles = defaultdict(list)
         self.next_vehicle_id = 0
+        self.frame = 0
 
     def preprocess_frame(self, frame):
         """
@@ -76,7 +78,7 @@ class TrafficDetector:
         )
         
         # Process detected contours
-        detected_vehicles = []
+        detected_vehicles = {}
         for contour in contours:
             # Filter small contours
             if cv2.contourArea(contour) < self.min_area:
@@ -89,17 +91,20 @@ class TrafficDetector:
             centroid = (int(x + w/2), int(y + h/2))
             
             # Track vehicle
-            vehicle_id = self.track_vehicle(centroid)
+            vehicle_id = self.track_vehicle(centroid, frame)
             
-            detected_vehicles.append({
-                'id': vehicle_id,
-                'bbox': (x, y, w, h),
-                'centroid': centroid
-            })
+            if vehicle_id in detected_vehicles:
+                min_x = min(detected_vehicles[vehicle_id][0], x)
+                min_y = min(detected_vehicles[vehicle_id][1], y)
+                max_x = max(detected_vehicles[vehicle_id][2], x+w)
+                max_y = max(detected_vehicles[vehicle_id][3], y+h)
+                detected_vehicles[vehicle_id] = [min_x, min_y, max_x, max_y]
+            else:
+                detected_vehicles[vehicle_id] = [x, y, x+w, y+h]
         
         return detected_vehicles
 
-    def track_vehicle(self, centroid):
+    def track_vehicle(self, centroid, frame):
         """
         Track vehicles across frames using simple centroid tracking
         
@@ -108,14 +113,16 @@ class TrafficDetector:
         Returns:
             int: Vehicle ID
         """
+        
         # Check if centroid matches any existing tracked vehicle
         for vehicle_id, points in self.tracked_vehicles.items():
-            if points and self._is_same_vehicle(points[-1], centroid):
-                points.append(centroid)
+            # print(points)
+            if points and self._is_same_vehicle(points[-1][0], centroid):
+                points.append([centroid, self.frame])
                 return vehicle_id
-        
+    
         # If no match found, create new tracked vehicle
-        self.tracked_vehicles[self.next_vehicle_id] = [centroid]
+        self.tracked_vehicles[self.next_vehicle_id].append([centroid, self.frame])
         self.next_vehicle_id += 1
         return self.next_vehicle_id - 1
 
@@ -153,10 +160,14 @@ class TrafficDetector:
             cv2.line(frame, (0, y2), (frame.shape[1], y2), (0, 255, 255), 2)
         
         # Draw bounding boxes and track vehicles crossing detection lines
-        for vehicle in detected_vehicles:
-            x, y, w, h = vehicle['bbox']
-            vehicle_id = vehicle['id']
-            centroid = vehicle['centroid']
+        for vehicle_id in detected_vehicles.keys():
+            x0, y0, x1, y1_ = detected_vehicles[vehicle_id]
+            centroid = (int((x0 + x1) / 2)), int((y0 + y1_) / 2)
+            print(x0, y0, x1, y1_)
+            # print(centroid, self.tracked_vehicles[vehicle_id][-1])
+            # speed_x = centroid[0] - self.tracked_vehicles[vehicle_id][-1][0][0] if self.tracked_vehicles[vehicle_id] else 0
+            # speed_y = centroid[1] - self.tracked_vehicles[vehicle_id][-1][0][1] if self.tracked_vehicles[vehicle_id] else 0
+            # speed = np.sqrt(speed_x**2 + speed_y**2)
             # Check if the centroid falls inside any detection line
             for y1, y2 in self.detection_lines:
                 if centroid[1] < y1 or y2 < centroid[1]:
@@ -164,13 +175,14 @@ class TrafficDetector:
                     # Increment vehicle count only if it's within the lines
                 else:
                     # Draw bounding box
-                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                    cv2.rectangle(frame, (x1, y1_), (x0, y0), (0, 255, 0), 2)
                     
                     # Draw ID
                     cv2.putText(
                         frame,
-                        f"ID: {vehicle_id}",
-                        (x, y - 10),
+                        # f"ID: {vehicle_id}
+                        f"{vehicle_id}",
+                        (x0, y0 - 10),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.5,
                         (0, 255, 0),
@@ -183,13 +195,21 @@ class TrafficDetector:
         cv2.putText(
             frame,
             #f"Vehicle Count: {self.vehicle_count}",
-            f"Vehicle Count: {len(self.tracked_vehicles)}",
+            f"Vehicle Count: {sum(1 for value in self.tracked_vehicles.values() if self.frame - value[-1][1] < 5)}",
             (10, 50),
             cv2.FONT_HERSHEY_SIMPLEX,
             1,
             (0, 255, 255),
             2
         )
+        
+        self.vehicle_cleanup(frame)
+        
+        if not preprocess:
+            if self.tracked_vehicles != None:
+                print(sorted(self.tracked_vehicles.keys()))
+        
+        self.frame += 1
         
         return frame, detected_vehicles
 
@@ -203,9 +223,14 @@ class TrafficDetector:
         for vehicle_id, points in self.tracked_vehicles.items():
             if points:
                 last_point = points[-1]
-                x, y = last_point
+                x, y = last_point[0]
                 # Check if the vehicle centroid is out of frame
-                if x < 0 or x > frame_width or y < 10 or y > frame_height:
+                
+                last_frame = last_point[1]
+                # if not preprocess:
+                #     print(f"Vehicle {vehicle_id} last seen at ({x}, {y}) on frame {last_frame}")
+                
+                if x < 0 or x > frame_width or y < 10 or y > frame_height or self.frame - last_frame > 5:
                     to_remove.append(vehicle_id)
         for vehicle_id in to_remove:
             del self.tracked_vehicles[vehicle_id]
@@ -237,7 +262,11 @@ def main():
     
     cap.release()
     cv2.destroyAllWindows()
-
+    detector.tracked_vehicles = defaultdict(list)
+    detector.next_vehicle_id = 1
+    
+    global preprocess
+    preprocess = False
 
     cap = cv2.VideoCapture(path)
     while True:

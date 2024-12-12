@@ -9,7 +9,9 @@ class Classifier:
         labels_path="yolo/labels.txt",
         class_index=[0,1,2,3,5,7,8],
         threshold = 0.5,
-        confidence = 0.01, # Low confidence since we will have already filtered out things that are not vehicles
+        confidence = 0.30,
+        mog_threshold = 0.07,
+        excluded_classes = [0, 1]
     ):
         self.class_index = class_index
         self.threshold = threshold
@@ -19,6 +21,8 @@ class Classifier:
         self.colors = np.random.randint(
             0, 255, size=(len(self.labels), 3), dtype="uint8"
         )
+        self.mog_threshold = mog_threshold
+        self.excluded_classes = excluded_classes
 
         self.dnn = cv2.dnn.readNetFromDarknet(config_path, weights_path)
         self.dnn.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
@@ -28,7 +32,7 @@ class Classifier:
             self.layer_names[i - 1] for i in self.dnn.getUnconnectedOutLayers()
         ]
 
-    def post_process(self, frame):
+    def post_process(self, frame, mog_frame):
         H, W = frame.shape[:2]
         blob = cv2.dnn.blobFromImage(
             frame, 1 / 255.0, (416, 416), swapRB=True, crop=False
@@ -50,13 +54,25 @@ class Classifier:
                         (centerX, centerY, width, height) = coordinates.astype("int")
                         x = int(centerX - (width / 2))
                         y = int(centerY - (height / 2))
-                        bbox.append([x, y, int(width), int(height)])
-                        class_ids.append(class_id)
-                        confidences.append(confidence)
+                        
+                        if class_id in self.excluded_classes:
+                            bbox.append([x, y, int(width), int(height)])
+                            class_ids.append(class_id)
+                            confidences.append(confidence)
+                        else:
+                            # Check the percentage of white pixels in the bounding box area
+                            box_area = mog_frame[y:y+height, x:x+width]
+                            white_pixels = cv2.countNonZero(box_area)
+                            total_pixels = box_area.size
+                            
+                            if total_pixels > 0:
+                                white_pixel_ratio = white_pixels / total_pixels
+                                if white_pixel_ratio >= self.mog_threshold:
+                                    bbox.append([x, y, int(width), int(height)])
+                                    class_ids.append(class_id)
+                                    confidences.append(confidence)
 
         return bbox, confidences, class_ids
-        # self.__draw(bbox, confidences, class_ids, frame)
-        # return frame
 
     def __draw(self, bbox, confidences, class_ids, frame):
         ids = cv2.dnn.NMSBoxes(bbox, confidences, self.confidence, self.threshold)

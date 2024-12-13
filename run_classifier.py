@@ -6,6 +6,19 @@ from cv_object import Object
 from mog import MOG
 import numpy as np
 
+def draw_metrics(frame, metrics, labels):
+    """
+    Draws the metrics on the frame
+    """
+    y_offset = 20
+    class_indexes = [0, 1, 2, 3, 5, 7]
+    for class_id in class_indexes:
+        speed = metrics["average_speed_by_class"].get(class_id, 0)
+        count = metrics["object_count"].get(class_id, 0)
+        text = f"{labels[class_id]}: Count={count}, Avg Speed={speed:.2f} mph"
+        cv2.putText(frame, text, (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        y_offset += 20
+
 def main(input_file):
     # Initialize the classifier
     classifier = Classifier()
@@ -22,7 +35,7 @@ def main(input_file):
     fps = cap.get(cv2.CAP_PROP_FPS)
 
     # Define the codec and create VideoWriter object
-    out = cv2.VideoWriter('output.avi', cv2.VideoWriter_fourcc(*'XVID'), fps, (width, height))
+    out = cv2.VideoWriter('output2.avi', cv2.VideoWriter_fourcc(*'XVID'), fps, (width, height))
 
      # Approximate camera matrix and distortion coefficients
     mtx = np.array([[1000, 0, 640], [0, 1000, 360], [0, 0, 1]])  # Example values
@@ -81,10 +94,14 @@ def main(input_file):
         # Update metrics tracker
         metrics_tracker.set_cur_objects(objects)
         metrics_tracker.update_metrics()
-        print(metrics_tracker.get_metrics())
+        metrics = metrics_tracker.get_metrics()
+        print(metrics)
 
         # Draw the bounding boxes and labels on the frame
         classifier._Classifier__draw(bboxes, confidences, class_ids, frame)
+
+        # Draw the metrics on the frame
+        draw_metrics(frame, metrics, classifier.labels)
 
         # Write the frame to the output video
         out.write(frame)

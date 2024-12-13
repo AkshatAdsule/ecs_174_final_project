@@ -1,7 +1,7 @@
 import cv2
 
 class MOG:
-  def __init__(self, history=1000, varThreshold=80, detectShadows=False):
+  def __init__(self, history=100, varThreshold=80, detectShadows=False):
       self.background_subtractor = cv2.createBackgroundSubtractorMOG2(
           history=history,
           varThreshold=varThreshold,

@@ -7,10 +7,10 @@ class Classifier:
         config_path="yolo/yolov3-320.cfg",
         weights_path="yolo/yolov3-320.weights",
         labels_path="yolo/labels.txt",
-        class_index=[0,1,2,3,5,7,8],
+        class_index=[0,1,2,3,5,7],
         threshold = 0.5,
         confidence = 0.30,
-        mog_threshold = 0.07,
+        mog_threshold = 0.15,
         excluded_classes = [0, 1]
     ):
         self.class_index = class_index

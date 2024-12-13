@@ -1,16 +1,17 @@
 class MetricsTracker:
     DT = 1/30
     FPS_TO_MPH = 1/(1.467)
-    def __init__(self, max_distance=50, history_size=10, pixels_to_meters=5):
+    def __init__(self, max_distance=7, history_size=10, pixels_to_meters=5):
         self.prev_objects = []
         self.cur_objects = []
         self.max_distance = max_distance
         self.mapping = None
 
         self.history_size = history_size
+        class_indexes = [0, 1, 2, 3, 5, 7, 8]
         self.metrics_history = {
-            "speed": {i: [0 for _ in range(history_size)] for i in range(10)},  # Assuming 10 classes
-            "object_count": [0 for _ in range(history_size)],
+            "speed": {i: [0 for _ in range(history_size)] for i in class_indexes},
+            "object_count": {i: [0 for _ in range(history_size)] for i in class_indexes},
         }
     
     def map_objects(self):
@@ -48,8 +49,9 @@ class MetricsTracker:
         if not self.mapping:
             return 0
         
-        total_distance_by_class = {i: 0 for i in range(10)}  # Assuming 10 classes
-        count_by_class = {i: 0 for i in range(10)}
+        class_indexes = [0, 1, 2, 3, 5, 7, 8]
+        total_distance_by_class = {i: 0 for i in class_indexes}
+        count_by_class = {i: 0 for i in class_indexes}
         
         for i, cur_index in enumerate(self.mapping):
             if cur_index != -1:
@@ -70,24 +72,32 @@ class MetricsTracker:
         """
         Returns average speed based on history for each class
         """
-        average_speed_by_class = {i: sum(self.metrics_history["speed"][i]) / self.history_size for i in range(10)}
+        class_indexes = [0, 1, 2, 3, 5, 7, 8]
+        average_speed_by_class = {i: sum(self.metrics_history["speed"][i]) / self.history_size for i in class_indexes}
         return average_speed_by_class
     
     def update_object_count_history(self):
         """
-        Updates how many objects are on the screen
+        Updates how many objects are on the screen per class
         """
-        current_count = len(self.cur_objects)
-        self.metrics_history["object_count"].pop(0)
-        self.metrics_history["object_count"].append(current_count)
+        class_indexes = [0, 1, 2, 3, 5, 7, 8]
+        count_by_class = {i: 0 for i in class_indexes}
+        for obj in self.cur_objects:
+            count_by_class[obj.object_type] += 1
         
-        print(current_count)
+        for class_id in count_by_class:
+            self.metrics_history["object_count"][class_id].pop(0)
+            self.metrics_history["object_count"][class_id].append(count_by_class[class_id])
+        
+        print(count_by_class)
 
     def get_average_object_count(self):
         """
-        Returns average based on history
+        Returns average object count based on history for each class
         """
-        return sum(self.metrics_history["object_count"]) / self.history_size
+        class_indexes = [0, 1, 2, 3, 5, 7, 8]
+        average_count_by_class = {i: sum(self.metrics_history["object_count"][i]) / self.history_size for i in class_indexes}
+        return average_count_by_class
     
     def update_metrics(self):
         """
@@ -104,7 +114,7 @@ class MetricsTracker:
         average_object_count = self.get_average_object_count()
         metrics = {
             "average_speed_by_class": average_speed_by_class,
-            "average_object_count": average_object_count,
+            "object_count": average_object_count,
         }
         return metrics
 
